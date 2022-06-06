@@ -5,7 +5,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 from utils import *
-# import logging
+import logging
 
 dotenv_file = dotenv.find_dotenv()
 dotenv.load_dotenv(dotenv_file)
@@ -13,38 +13,68 @@ dotenv.load_dotenv(dotenv_file)
 USERNAME = os.environ["USER"]
 PASSWORD = os.environ["PASSWORD"]
 MAIL_ADDRESS = os.environ["MAIL_ADDRESS"]
-KEY = os.environ["KEY"]
 IMAP_SERVER = os.environ["IMAP_SERVER"]
 IMAP_PORT = os.environ["IMAP_PORT"]
 SMTP_SERVER = os.environ["SMTP_SERVER"]
 SMTP_PORT = os.environ["SMTP_PORT"]
+KEY = os.environ["KEY"]
+if KEY == "NULL":
+    KEY = get_random_string()
+    dotenv.set_key(dotenv_file, "KEY", KEY)
 
-def read_mail(num_of_mail='all', search_criteria='(UNSEEN SUBJECT "{}")'.format(KEY), mail_box="INBOX"):
+def fetch_mail(num_of_mail=0, search_criteria='(UNSEEN SUBJECT "{}")'.format(KEY), mail_box="INBOX"):
+    logging.info("Connecting to IMAP server...")
     imap = imaplib.IMAP4_SSL(IMAP_SERVER)
     imap.login(USERNAME, PASSWORD)
     imap.select(mail_box)
+    logging.info("Logged in to IMAP server.")
+    logging.info("Searching mail...")
     status, mail_ids = imap.search(None, search_criteria)
     if status != 'OK':
-        print("Error searching mail")
+        logging.error("Error searching mail")
+        imap.close()
+        imap.logout()
         return
     received_mails = []
     mail_ids = mail_ids[0].split()
-    if num_of_mail == 'all':
-        num_of_mail = len(mail_ids)
-    for id in mail_ids[-num_of_mail:]:
+    logging.info("Found {} mails.".format(len(mail_ids)))
+    if len(mail_ids) == 0:
+        imap.close()
+        imap.logout()
+        return []
+    for cnt, id in enumerate(mail_ids[-num_of_mail:]):
         status, mail = imap.fetch(id, "(RFC822)")
-        # imap.store(id, '+FLAGS', '\\Seen')
+        imap.store(id, '+FLAGS', '\\Seen')
         if status != 'OK':
-            print("Error fetching mail")
+            logging.error("Error fetching mail")
+            imap.close()
+            imap.logout()
             return
         mail = message_from_bytes(mail[0][1])
+        log_name = '{}.txt'.format(mail['Message-ID'])
+        mkdir('logs/mail')
+        log_name = 'logs/mail/' + clean_file_name(log_name)
+        with open(log_name, 'w') as f:
+            f.write(mail.as_string())
         received_mails.append(mail)
+        logging.info("Fetched {}/{} mails.".format(cnt + 1, len(mail_ids[-num_of_mail:])))
+    logging.info("Fetched {} mails.".format(len(received_mails)))
     imap.close()
     imap.logout()
+    logging.info("Logged out from IMAP server.")
     return received_mails
 
-def create_mail(receiver=None, subject=None, plain_content=None, html_content=None, attachments=None, original=None):
+def create_mail(receiver=None, subject=None, plain_content=None, html_content=None, attachments=None, header=None, original=None, alias_attachment_name=None):
+    if receiver is None and original is None:
+        logging.error("No receiver or original mail provided.")
+        return
+    logging.info("Creating mail to {}...".format(receiver))
     mail = MIMEMultipart('alternative')
+    if header is not None:
+        for key, value in header.items():
+            mail[key] = value
+    if subject is None:
+        logging.warning("No subject specified. Default subject will be used.")
     if original is not None:
         mail['References'] = mail['In-Reply-To'] = original['Message-ID']
         mail['Subject'] = subject or 'Re: ' + original['Subject']
@@ -56,24 +86,33 @@ def create_mail(receiver=None, subject=None, plain_content=None, html_content=No
             mail['From'] = MAIL_ADDRESS
             mail['To'] = receiver
         else:
-            print('No receiver')
+            logging.error('No receiver specified.')
             return
     if plain_content is not None:
         mail.attach(MIMEText(plain_content, 'plain'))
+    else:
+        logging.warning("No plain content specified. Default content will be used.")
     if html_content is not None:
         mail.attach(MIMEText(html_content, 'plain'))
+    else:
+        logging.warning("No html content is attached.")
     if attachments is not None:
-        for file_path in attachments:
+        for id, file_path in enumerate(attachments):
             with open(file_path, 'rb') as f:
                 part = MIMEApplication(f.read(), Name=os.path.basename(file_path))
-            part['Content-Disposition'] = 'attachment; filename="{}"'.format(os.path.basename(file_path))
+            file_name = os.path.basename(file_path)
+            if alias_attachment_name is not None:
+                file_name = alias_attachment_name[id]
+            part['Content-Disposition'] = 'attachment; filename="{}"'.format(file_name)
             mail.attach(part)
     return mail
 def send_mail(mail):
+    logging.info("Connecting to SMTP server...")
     smtp = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
     smtp.login(USERNAME, PASSWORD)
+    logging.info("Connected to SMTP server.")
+    logging.info("Sending mail to {}...".format(extract_mail_address(mail['To'])))
     smtp.sendmail(mail['From'], mail['To'], mail.as_string())
+    logging.info("Mail sent.")
     smtp.quit()
-
-mails = read_mail()
-send_mail(create_mail(plain_content='hahahhhaa', original=mails[0]))
+    logging.info("Disconnected from SMTP server.")
