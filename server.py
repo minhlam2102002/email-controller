@@ -2,21 +2,31 @@ from mail import *
 import controller
 import platform
 import time
-import logging
+import logging, dotenv
+from dotenv import load_dotenv
+
+load_dotenv()
 
 OS_NAME = platform.system()
-REFRESH_RATE = 0
+REFRESH_RATE = 2
 LOG_FILE = 'logs/log.txt'
 IS_STOPPED = False
-KEY = os.environ["KEY"]
-if KEY == "NULL":
+MAIL_ADDRESS = os.getenv('MAIL_ADDRESS')
+KEY = os.getenv('KEY')
+if KEY == 'NULL':
     KEY = get_random_string()
-    dotenv.set_key(dotenv_file, "KEY", KEY)
+    dotenv.set_key("KEY", KEY)
 
 def start_listening_email():
-    logging.info("Start listening for new mail with KEY='{}'.".format(KEY))
+    global KEY
+    logging.info("Start listening for new mail at {} with KEY='{}'.".format(MAIL_ADDRESS, KEY))
     while True:
-        received_mails = fetch_mail()
+        del os.environ['KEY']
+        load_dotenv()
+        if os.getenv('KEY') != KEY:
+            logging.info("Key changed to '{}'".format(os.getenv('KEY')))
+        KEY = os.getenv('KEY')
+        received_mails = fetch_mail(search_criteria='(UNSEEN SUBJECT "{}")'.format(KEY))
         for mail in received_mails:
             valid = False
             for command in controller.COMMANDS:
@@ -24,14 +34,13 @@ def start_listening_email():
                     logging.info("Received {} request from {}.".format(command, extract_mail_address(mail['From'])))
                     logging.info("Executing {} command...".format(command))
                     respone_mail = controller.EXECUTE[command](mail)
-                    logging.info("Executed {} command.".format(command))
-                    logging.info("Preparing response mail...")
+                    logging.info("Executed {} command successfully.".format(command))
                     send_mail(respone_mail)
-                    logging.info("Response mail sent.")
                     valid = True
                     break
             if not valid:
-                respone_mail = controller.EXECUTE['HELP'](mail)
+                logging.info("Received invalid request from {}.".format(extract_mail_address(mail['From'])))
+                respone_mail = controller.EXECUTE['HELP'](req=mail, isInvalid=True)
                 send_mail(respone_mail)
         if IS_STOPPED:
             break

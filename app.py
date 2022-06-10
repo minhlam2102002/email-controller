@@ -15,9 +15,9 @@ KEY = os.getenv("KEY")
 if KEY == "NULL":
     KEY = get_random_string()
     dotenv.set_key(dotenv_file, "KEY", KEY)
-PADX = 40
-WIDTH = 640
-HEIGHT = 500
+PADX = 20
+WIDTH = 700
+HEIGHT = 550
 app = Tk()
 app.title('Email Controller')
 app.resizable(width=False, height=False)

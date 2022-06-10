@@ -1,14 +1,13 @@
 import imaplib, smtplib
-import os, dotenv
+import os, logging, dotenv
+from dotenv import load_dotenv
 from email import message_from_bytes
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 from utils import *
-import logging
 
-dotenv_file = dotenv.find_dotenv()
-dotenv.load_dotenv(dotenv_file)
+load_dotenv()
 
 USERNAME = os.environ["USER"]
 PASSWORD = os.environ["PASSWORD"]
@@ -17,23 +16,21 @@ IMAP_SERVER = os.environ["IMAP_SERVER"]
 IMAP_PORT = os.environ["IMAP_PORT"]
 SMTP_SERVER = os.environ["SMTP_SERVER"]
 SMTP_PORT = os.environ["SMTP_PORT"]
-KEY = os.environ["KEY"]
-if KEY == "NULL":
-    KEY = get_random_string()
-    dotenv.set_key(dotenv_file, "KEY", KEY)
 
-def fetch_mail(num_of_mail=0, search_criteria='(UNSEEN SUBJECT "{}")'.format(KEY), mail_box="INBOX"):
+def fetch_mail(num_of_mail=0, search_criteria='(UNSEEN SUBJECT "{}")'.format(os.environ["KEY"]), mail_box="INBOX"):
     logging.info("Connecting to IMAP server...")
     imap = imaplib.IMAP4_SSL(IMAP_SERVER)
     imap.login(USERNAME, PASSWORD)
     imap.select(mail_box)
-    logging.info("Logged in to IMAP server.")
+    logging.info("Logged in to IMAP server successfully.")
     logging.info("Searching mail...")
     status, mail_ids = imap.search(None, search_criteria)
     if status != 'OK':
         logging.error("Error searching mail")
+        logging.error("Status: {}".format(status))
         imap.close()
         imap.logout()
+        logging.error("Logged out from IMAP server.")
         return
     received_mails = []
     mail_ids = mail_ids[0].split()
@@ -41,6 +38,7 @@ def fetch_mail(num_of_mail=0, search_criteria='(UNSEEN SUBJECT "{}")'.format(KEY
     if len(mail_ids) == 0:
         imap.close()
         imap.logout()
+        logging.info("Logged out from IMAP server.")
         return []
     for cnt, id in enumerate(mail_ids[-num_of_mail:]):
         status, mail = imap.fetch(id, "(RFC822)")
@@ -90,12 +88,8 @@ def create_mail(receiver=None, subject=None, plain_content=None, html_content=No
             return
     if plain_content is not None:
         mail.attach(MIMEText(plain_content, 'plain'))
-    else:
-        logging.warning("No plain content specified. Default content will be used.")
     if html_content is not None:
         mail.attach(MIMEText(html_content, 'plain'))
-    else:
-        logging.warning("No html content is attached.")
     if attachments is not None:
         for id, file_path in enumerate(attachments):
             with open(file_path, 'rb') as f:
@@ -110,9 +104,9 @@ def send_mail(mail):
     logging.info("Connecting to SMTP server...")
     smtp = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
     smtp.login(USERNAME, PASSWORD)
-    logging.info("Connected to SMTP server.")
+    logging.info("Connected to SMTP server successfully.")
     logging.info("Sending mail to {}...".format(extract_mail_address(mail['To'])))
     smtp.sendmail(mail['From'], mail['To'], mail.as_string())
-    logging.info("Mail sent.")
+    logging.info("Mail sent successfully.")
     smtp.quit()
     logging.info("Disconnected from SMTP server.")
